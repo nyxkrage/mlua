@@ -8,6 +8,7 @@ use std::string::String as StdString;
 use bstr::{BStr, BString};
 use num_traits::cast;
 
+use crate::{IntoLuaMulti, FromLuaMulti};
 use crate::error::{Error, Result};
 use crate::function::Function;
 use crate::lua::Lua;
@@ -119,6 +120,91 @@ impl<'lua> FromLua<'lua> for Function<'lua> {
         }
     }
 }
+
+macro_rules! fn_to_lua {
+    () => {
+        impl<'lua, R> IntoLua<'lua> for Box<dyn Fn() -> R>
+        where
+            R: IntoLua<'lua> + 'static,
+        {
+            fn into_lua(self, lua: &'lua Lua) -> Result<Value<'lua>> {
+                lua.create_function(move |_l,_: ()| Ok(self())).map(|f| Value::Function(f))
+            }
+        }
+    };
+    ($($a:ident),+) => {
+        #[allow(unused_parens)]
+        impl<'lua, $($a),+, R> IntoLua<'lua> for Box<dyn Fn($($a),+) -> R +'static>
+        where
+            ($($a),+): FromLuaMulti<'lua> + 'static,
+            R: IntoLua<'lua> + 'static,
+        {
+            fn into_lua(self, lua: &'lua Lua) -> Result<Value<'lua>> {
+                #[allow(unused_parens, non_snake_case)]
+                lua.create_function(move |_, ($($a),+)| Ok(self($($a),+))).map(|f| Value::Function(f))
+            }
+        }
+    }
+}
+macro_rules! fn_from_lua {
+    () => {
+        impl<'lua, R> FromLua<'lua> for Box<dyn Fn() -> R + 'lua>
+        where
+            R: FromLua<'lua>,
+        {
+            fn from_lua(value: Value<'lua>, _lua: &'lua Lua) -> Result<Self> {
+                if let Value::Function(fun) = value {
+                    Ok(Box::new(move || fun.call::<(), R>(()).expect("function called with wrong amount of arguments")))
+                } else {
+                    Err(Error::FromLuaConversionError { from: value.type_name(), to: "Fn() -> R", message: None })
+                }
+            }
+        }
+    };
+    ($($a:ident),+) => {
+        #[allow(unused_parens)]
+        impl<'lua, $($a),+, R> FromLua<'lua> for Box<dyn Fn($($a),+) -> R + 'lua>
+        where
+            ($($a),+): IntoLuaMulti<'lua>,
+            R: FromLua<'lua>,
+        {
+            fn from_lua(value: Value<'lua>, _lua: &'lua Lua) -> Result<Self> {
+                if let Value::Function(fun) = value {
+                    #[allow(non_snake_case,unused_parens)]
+                    Ok(Box::new(move |$($a),+| fun.call::<($($a),+), R>(($($a),+)).expect("function called with wrong amount of arguments")))
+                } else {
+                    Err(Error::FromLuaConversionError { from: value.type_name(), to: "Fn() -> R", message: None })
+                }
+            }
+        }
+    }
+}
+fn_from_lua!();
+fn_from_lua!(A1);
+fn_from_lua!(A1,A2);
+fn_from_lua!(A1,A2,A3);
+fn_from_lua!(A1,A2,A3,A4);
+fn_from_lua!(A1,A2,A3,A4,A5);
+fn_from_lua!(A1,A2,A3,A4,A5,A6);
+fn_from_lua!(A1,A2,A3,A4,A5,A6,A7);
+fn_from_lua!(A1,A2,A3,A4,A5,A6,A7,A8);
+fn_from_lua!(A1,A2,A3,A4,A5,A6,A7,A8,A9);
+fn_from_lua!(A1,A2,A3,A4,A5,A6,A7,A8,A9,A10);
+fn_from_lua!(A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11);
+fn_from_lua!(A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12);
+fn_to_lua!();
+fn_to_lua!(A1);
+fn_to_lua!(A1,A2);
+fn_to_lua!(A1,A2,A3);
+fn_to_lua!(A1,A2,A3,A4);
+fn_to_lua!(A1,A2,A3,A4,A5);
+fn_to_lua!(A1,A2,A3,A4,A5,A6);
+fn_to_lua!(A1,A2,A3,A4,A5,A6,A7);
+fn_to_lua!(A1,A2,A3,A4,A5,A6,A7,A8);
+fn_to_lua!(A1,A2,A3,A4,A5,A6,A7,A8,A9);
+fn_to_lua!(A1,A2,A3,A4,A5,A6,A7,A8,A9,A10);
+fn_to_lua!(A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11);
+fn_to_lua!(A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12);
 
 #[cfg(feature = "unstable")]
 impl<'lua> IntoLua<'lua> for OwnedFunction {
